@@ -5,10 +5,9 @@ import { People, Assessment, ThumbUp, Schedule } from "@mui/icons-material";
 
 import SummaryCard from "./SummaryCard";
 
-const cards = [
+const cardConfig = [
   {
     title: "Total Operator",
-    value: 120,
     subtitle: "Operator Kontrak",
     icon: People,
     color: "#1565C0",
@@ -16,7 +15,6 @@ const cards = [
   },
   {
     title: "Sudah Dinilai",
-    value: 98,
     subtitle: "Data Penilaian",
     icon: Assessment,
     color: "#00897B",
@@ -24,7 +22,6 @@ const cards = [
   },
   {
     title: "Rekomendasi Tetap",
-    value: 26,
     subtitle: "Hasil PSI",
     icon: ThumbUp,
     color: "#2E7D32",
@@ -32,7 +29,6 @@ const cards = [
   },
   {
     title: "Perpanjang Kontrak",
-    value: 72,
     subtitle: "Perlu Evaluasi",
     icon: Schedule,
     color: "#EF6C00",
@@ -40,7 +36,17 @@ const cards = [
   },
 ];
 
-export default function SummaryCards() {
+export default function SummaryCards({ summary }) {
+  const cards = cardConfig.map((card) => ({
+    ...card,
+    value: {
+      "Total Operator": summary?.totalOperators || 0,
+      "Sudah Dinilai": summary?.totalEvaluated || 0,
+      "Rekomendasi Tetap": summary?.recommendedPermanent || 0,
+      "Perpanjang Kontrak": summary?.contractExtension || 0,
+    }[card.title],
+  }));
+
   return (
     <Grid container spacing={2}>
       {cards.map((item) => (

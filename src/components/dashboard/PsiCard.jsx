@@ -9,7 +9,7 @@ import {
   LinearProgress,
 } from "@mui/material";
 
-export default function PsiCard() {
+export default function PsiCard({ psi }) {
   return (
     <Card
       sx={{
@@ -28,7 +28,7 @@ export default function PsiCard() {
               <Typography color="text.secondary">Rata-rata</Typography>
 
               <Typography variant="h4" fontWeight={700} color="primary">
-                0.83
+                {psi?.average?.toFixed(2) || "0.00"}
               </Typography>
             </Box>
           </Grid>
@@ -38,7 +38,7 @@ export default function PsiCard() {
               <Typography color="text.secondary">Nilai Tertinggi</Typography>
 
               <Typography variant="h4" color="success.main" fontWeight={700}>
-                0.96
+                {psi?.highest?.toFixed(2) || "0.00"}
               </Typography>
             </Box>
           </Grid>
@@ -48,7 +48,7 @@ export default function PsiCard() {
               <Typography color="text.secondary">Nilai Terendah</Typography>
 
               <Typography variant="h4" color="error.main" fontWeight={700}>
-                0.61
+                {psi?.lowest?.toFixed(2) || "0.00"}
               </Typography>
             </Box>
           </Grid>
@@ -58,7 +58,7 @@ export default function PsiCard() {
               <Typography color="text.secondary">Ranking Terbaik</Typography>
 
               <Typography variant="h4" color="secondary.main" fontWeight={700}>
-                #1
+                {psi?.bestRanking ? `#${psi.bestRanking}` : "-"}
               </Typography>
             </Box>
           </Grid>
@@ -71,7 +71,7 @@ export default function PsiCard() {
 
           <LinearProgress
             variant="determinate"
-            value={82}
+            value={psi?.progress || 0}
             sx={{
               height: 10,
               borderRadius: 10,
@@ -79,7 +79,7 @@ export default function PsiCard() {
           />
 
           <Typography variant="caption" color="text.secondary">
-            82% Operator telah dinilai
+            {psi?.progress || 0}% Operator telah dinilai
           </Typography>
         </Box>
       </CardContent>

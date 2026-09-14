@@ -1,14 +1,17 @@
 "use client";
 
-import { useState } from "react";
-import { usePathname } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 
 import {
   AppBar,
   Avatar,
+  Badge,
   Box,
   Breadcrumbs,
+  Chip,
+  Divider,
   Drawer,
   IconButton,
   List,
@@ -16,45 +19,28 @@ import {
   ListItemButton,
   ListItemIcon,
   ListItemText,
+  Menu,
+  MenuItem,
+  Stack,
   Toolbar,
   Typography,
-  Stack,
-  Chip,
-  Badge,
-  Divider,
 } from "@mui/material";
 
 import {
-  Dashboard,
-  Menu,
-  ChevronLeft,
-  People,
-  Engineering,
-  Checklist,
-  Assessment,
-  ThumbUp,
-  Person,
-  EditNote,
-  Notifications,
+  AccountCircleOutlined,
   Home,
-  Settings,
+  LogoutOutlined as Logout,
+  NotificationsActive as Notifications,
+  SettingsOutlined as Settings,
+  ChevronLeft,
+  Menu as MenuIcon,
 } from "@mui/icons-material";
+import { getMenuByRole } from "@/config/menu";
 
-import { menuByRole } from "@/lib/dummyData";
+const expandedDrawerWidth = 270;
+const collapsedDrawerWidth = 88;
 
-const iconMap = {
-  Dashboard,
-  People,
-  Engineering,
-  Checklist,
-  Assessment,
-  ThumbUp,
-  Person,
-  EditNote,
-  Settings,
-};
-
-function SidebarContent({ collapsed, menuItems, onNavigate }) {
+function SidebarContent({ collapsed, menuItems, pathname, onNavigate }) {
   return (
     <Box
       sx={{
@@ -65,7 +51,6 @@ function SidebarContent({ collapsed, menuItems, onNavigate }) {
         flexDirection: "column",
       }}
     >
-      {/* Logo */}
       <Toolbar
         sx={{
           px: collapsed ? 1.5 : 2,
@@ -102,14 +87,10 @@ function SidebarContent({ collapsed, menuItems, onNavigate }) {
             >
               SPK Kontrak
             </Typography>
-
             <Typography
               variant="caption"
               noWrap
-              sx={{
-                color: "#8fa7c9",
-                display: "block",
-              }}
+              sx={{ color: "#8fa7c9", display: "block" }}
             >
               PT. Trimas Sarana
             </Typography>
@@ -117,24 +98,19 @@ function SidebarContent({ collapsed, menuItems, onNavigate }) {
         )}
       </Toolbar>
 
-      {/* Menu */}
-      <Box
-        sx={{
-          flex: 1,
-          overflowY: "auto",
-          overflowX: "hidden",
-          py: 2,
-        }}
-      >
+      <Box sx={{ flex: 1, overflowY: "auto", overflowX: "hidden", py: 2 }}>
         <List sx={{ px: 1.5 }}>
           {menuItems.map((item) => {
-            const Icon = iconMap[item.icon] || Dashboard;
+            const Icon = item.icon;
+            const active =
+              pathname === item.path || pathname.startsWith(`${item.path}/`);
 
             return (
-              <ListItem key={item.href} disablePadding sx={{ mb: 0.5 }}>
+              <ListItem key={item.path} disablePadding sx={{ mb: 0.5 }}>
                 <ListItemButton
                   component={Link}
-                  href={item.href}
+                  href={item.path}
+                  selected={active}
                   onClick={onNavigate}
                   sx={{
                     minHeight: 44,
@@ -142,15 +118,11 @@ function SidebarContent({ collapsed, menuItems, onNavigate }) {
                     color: "#c5d1e8",
                     justifyContent: collapsed ? "center" : "flex-start",
                     px: collapsed ? 1 : 1.5,
-
                     "&.Mui-selected": {
                       color: "#fff",
                       bgcolor: "rgba(47,111,237,0.22)",
                     },
-
-                    "&:hover": {
-                      bgcolor: "rgba(255,255,255,0.08)",
-                    },
+                    "&:hover": { bgcolor: "rgba(255,255,255,0.08)" },
                   }}
                 >
                   <ListItemIcon
@@ -162,14 +134,10 @@ function SidebarContent({ collapsed, menuItems, onNavigate }) {
                   >
                     <Icon fontSize="small" />
                   </ListItemIcon>
-
                   {!collapsed && (
                     <ListItemText
                       primary={item.label}
-                      primaryTypographyProps={{
-                        fontSize: 14,
-                        fontWeight: 500,
-                      }}
+                      primaryTypographyProps={{ fontSize: 14, fontWeight: 500 }}
                     />
                   )}
                 </ListItemButton>
@@ -179,32 +147,17 @@ function SidebarContent({ collapsed, menuItems, onNavigate }) {
         </List>
       </Box>
 
-      {/* Footer Sidebar */}
       {!collapsed && (
         <>
-          <Divider
-            sx={{
-              borderColor: "rgba(255,255,255,0.1)",
-            }}
-          />
-
+          <Divider sx={{ borderColor: "rgba(255,255,255,0.1)" }} />
           <Box sx={{ p: 2 }}>
             <Typography
               variant="caption"
-              sx={{
-                color: "#6f86a8",
-                display: "block",
-              }}
+              sx={{ color: "#6f86a8", display: "block" }}
             >
               Sistem Pendukung Keputusan
             </Typography>
-
-            <Typography
-              variant="caption"
-              sx={{
-                color: "#8fa7c9",
-              }}
-            >
+            <Typography variant="caption" sx={{ color: "#8fa7c9" }}>
               Metode Preference Selection Index
             </Typography>
           </Box>
@@ -214,100 +167,113 @@ function SidebarContent({ collapsed, menuItems, onNavigate }) {
   );
 }
 
-export default function AppShell({ children, role = "HC/HRD" }) {
+export default function AppShell({ children }) {
   const pathname = usePathname();
-
+  const router = useRouter();
+  const [user, setUser] = useState(null);
+  const [loadingUser, setLoadingUser] = useState(true);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  const [profileAnchorEl, setProfileAnchorEl] = useState(null);
 
-  const menuItems = menuByRole?.[role] || menuByRole?.["HC/HRD"] || [];
+  useEffect(() => {
+    const loadUser = async () => {
+      try {
+        const response = await fetch("/api/auth/me", { cache: "no-store" });
+        const result = await response.json();
+        if (!response.ok || !result.success) {
+          router.replace("/login");
+          return;
+        }
+        setUser(result.data);
+      } catch (error) {
+        console.error("LOAD USER ERROR:", error);
+        router.replace("/login");
+      } finally {
+        setLoadingUser(false);
+      }
+    };
 
-  const handleMobileClose = () => {
-    setMobileOpen(false);
+    loadUser();
+  }, [router]);
+
+  const menuItems = useMemo(() => getMenuByRole(user?.Role), [user?.Role]);
+  const profileMenuOpen = Boolean(profileAnchorEl);
+  const userInitials =
+    user?.NamaLengkap?.split(" ")
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((name) => name.charAt(0).toUpperCase())
+      .join("") || "U";
+
+  const handleLogout = async () => {
+    try {
+      setProfileAnchorEl(null);
+      await fetch("/api/logout", { method: "POST" });
+    } catch (error) {
+      console.error("LOGOUT ERROR:", error);
+    } finally {
+      router.replace("/login");
+      router.refresh();
+    }
   };
 
   const getPageTitle = () => {
-    if (!pathname || pathname === "/dashboard") {
-      return "Dashboard";
-    }
-
-    const title = pathname.replace("/", "").replace(/-/g, " ");
-
-    return title
+    if (!pathname || pathname === "/dashboard") return "Dashboard";
+    return pathname
+      .replace(/^\//, "")
+      .split("/")[0]
+      .replace(/-/g, " ")
       .split(" ")
       .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
       .join(" ");
   };
 
+  const sidebar = (isCollapsed, onNavigate) => (
+    <SidebarContent
+      collapsed={isCollapsed}
+      menuItems={menuItems}
+      pathname={pathname || ""}
+      onNavigate={onNavigate}
+    />
+  );
+
+  if (loadingUser) return null;
+
   return (
-    <Box
-      sx={{
-        display: "flex",
-        minHeight: "100vh",
-        bgcolor: "#f5f7fb",
-      }}
-    >
-      {/* =========================
-          MOBILE DRAWER
-      ========================== */}
+    <Box sx={{ display: "flex", minHeight: "100vh", bgcolor: "#f5f7fb" }}>
       <Drawer
         variant="temporary"
         open={mobileOpen}
-        onClose={handleMobileClose}
-        ModalProps={{
-          keepMounted: true,
-        }}
+        onClose={() => setMobileOpen(false)}
+        ModalProps={{ keepMounted: true }}
         sx={{
-          display: {
-            xs: "block",
-            lg: "none",
-          },
-
-          "& .MuiDrawer-paper": {
-            width: 270,
-            boxSizing: "border-box",
-            border: "none",
-          },
+          display: { xs: "block", lg: "none" },
+          "& .MuiDrawer-paper": { width: expandedDrawerWidth, border: "none" },
         }}
       >
-        <SidebarContent
-          collapsed={false}
-          menuItems={menuItems}
-          onNavigate={handleMobileClose}
-        />
+        {sidebar(false, () => setMobileOpen(false))}
       </Drawer>
 
-      {/* =========================
-          DESKTOP SIDEBAR
-      ========================== */}
       <Drawer
         variant="permanent"
         open
         sx={{
-          display: {
-            xs: "none",
-            lg: "block",
-          },
-
-          width: collapsed ? 88 : 270,
-
+          display: { xs: "none", lg: "block" },
+          width: collapsed ? collapsedDrawerWidth : expandedDrawerWidth,
           flexShrink: 0,
-
           "& .MuiDrawer-paper": {
-            width: collapsed ? 88 : 270,
+            width: collapsed ? collapsedDrawerWidth : expandedDrawerWidth,
             boxSizing: "border-box",
             borderRight: "none",
-            transition: "width 0.2s ease",
             overflowX: "hidden",
+            transition: "width 0.2s ease",
           },
         }}
       >
-        <SidebarContent collapsed={collapsed} menuItems={menuItems} />
+        {sidebar(collapsed)}
       </Drawer>
 
-      {/* =========================
-          MAIN CONTENT
-      ========================== */}
       <Box
         component="main"
         sx={{
@@ -317,9 +283,6 @@ export default function AppShell({ children, role = "HC/HRD" }) {
           flexDirection: "column",
         }}
       >
-        {/* =========================
-            TOPBAR
-        ========================== */}
         <AppBar
           position="sticky"
           elevation={0}
@@ -332,164 +295,154 @@ export default function AppShell({ children, role = "HC/HRD" }) {
         >
           <Toolbar
             sx={{
-              minHeight: {
-                xs: 64,
-                md: 72,
-              },
-
-              px: {
-                xs: 1.5,
-                sm: 2,
-                md: 3,
-              },
+              minHeight: { xs: 64, md: 72 },
+              px: { xs: 1.5, sm: 2, md: 3 },
             }}
           >
-            {/* Mobile Menu */}
             <IconButton
               color="inherit"
               edge="start"
               onClick={() => setMobileOpen(true)}
-              sx={{
-                mr: 1,
-                display: {
-                  xs: "flex",
-                  lg: "none",
-                },
-              }}
+              sx={{ mr: 1, display: { xs: "flex", lg: "none" } }}
             >
-              <Menu />
+              <MenuIcon />
             </IconButton>
-
-            {/* Desktop Collapse */}
             <IconButton
               color="inherit"
-              onClick={() => setCollapsed((prev) => !prev)}
-              sx={{
-                mr: 1,
-                display: {
-                  xs: "none",
-                  lg: "flex",
-                },
-              }}
+              onClick={() => setCollapsed((previous) => !previous)}
+              sx={{ mr: 1, display: { xs: "none", lg: "flex" } }}
             >
-              {collapsed ? <Menu /> : <ChevronLeft />}
+              {collapsed ? <MenuIcon /> : <ChevronLeft />}
             </IconButton>
 
-            {/* Breadcrumb */}
             <Breadcrumbs
               aria-label="breadcrumb"
-              sx={{
-                flexGrow: 1,
-                minWidth: 0,
-                color: "#5f6f8f",
-              }}
+              sx={{ flexGrow: 1, minWidth: 0, color: "#5f6f8f" }}
             >
               <Link
                 href="/dashboard"
-                style={{
-                  color: "inherit",
-                  textDecoration: "none",
-                }}
+                style={{ color: "inherit", textDecoration: "none" }}
               >
                 <Stack direction="row" spacing={0.5} alignItems="center">
                   <Home fontSize="small" />
-
                   <Typography
                     variant="body2"
-                    sx={{
-                      display: {
-                        xs: "none",
-                        sm: "block",
-                      },
-                    }}
+                    sx={{ display: { xs: "none", sm: "block" } }}
                   >
                     Beranda
                   </Typography>
                 </Stack>
               </Link>
-
               <Typography
                 variant="body2"
                 color="#14213d"
                 fontWeight={600}
                 noWrap
-                sx={{
-                  textTransform: "capitalize",
-                  maxWidth: {
-                    xs: 140,
-                    sm: 250,
-                    md: 400,
-                  },
-                }}
+                sx={{ maxWidth: { xs: 140, sm: 250, md: 400 } }}
               >
                 {getPageTitle()}
               </Typography>
             </Breadcrumbs>
 
-            {/* Right Header */}
             <Stack
               direction="row"
-              spacing={{
-                xs: 1,
-                sm: 1.5,
-              }}
+              spacing={{ xs: 1, sm: 1.5 }}
               alignItems="center"
             >
-              {/* Notification */}
-              <IconButton size="small">
+              <IconButton size="small" aria-label="Notifikasi">
                 <Badge badgeContent={3} color="error">
-                  <Notifications
-                    sx={{
-                      color: "#2f6fed",
-                    }}
-                  />
+                  <Notifications sx={{ color: "#2f6fed" }} />
                 </Badge>
               </IconButton>
-
-              {/* Role */}
               <Chip
-                label={role}
+                label={user?.Role || "-"}
                 color="primary"
                 variant="outlined"
                 size="small"
-                sx={{
-                  display: {
-                    xs: "none",
-                    sm: "flex",
+                sx={{ display: { xs: "none", sm: "flex" } }}
+              />
+              <IconButton
+                onClick={(event) => setProfileAnchorEl(event.currentTarget)}
+                sx={{ p: 0, borderRadius: "50%" }}
+                aria-label="Menu profil"
+              >
+                <Avatar
+                  sx={{
+                    bgcolor: "#2f6fed",
+                    width: 38,
+                    height: 38,
+                    fontSize: 14,
+                    fontWeight: 700,
+                  }}
+                >
+                  {userInitials}
+                </Avatar>
+              </IconButton>
+              <Menu
+                anchorEl={profileAnchorEl}
+                open={profileMenuOpen}
+                onClose={() => setProfileAnchorEl(null)}
+                anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+                transformOrigin={{ vertical: "top", horizontal: "right" }}
+                slotProps={{
+                  paper: {
+                    elevation: 3,
+                    sx: { mt: 1, minWidth: 240, borderRadius: 2 },
                   },
                 }}
-              />
-
-              {/* Avatar */}
-              <Avatar
-                sx={{
-                  bgcolor: "#2f6fed",
-                  width: 36,
-                  height: 36,
-                  fontSize: 14,
-                  fontWeight: 600,
-                }}
               >
-                HR
-              </Avatar>
+                <Box sx={{ px: 2, py: 1.5 }}>
+                  <Stack direction="row" spacing={1.5} alignItems="center">
+                    <Avatar
+                      sx={{
+                        bgcolor: "#2f6fed",
+                        width: 42,
+                        height: 42,
+                        fontWeight: 700,
+                      }}
+                    >
+                      {userInitials}
+                    </Avatar>
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography fontWeight={700} noWrap>
+                        {user?.NamaLengkap || "-"}
+                      </Typography>
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        noWrap
+                      >
+                        {user?.Username || user?.Role || "-"}
+                      </Typography>
+                    </Box>
+                  </Stack>
+                </Box>
+                <Divider />
+                <MenuItem component={Link} href="/profil">
+                  <ListItemIcon>
+                    <AccountCircleOutlined />
+                  </ListItemIcon>
+                  <ListItemText primary="Profil Saya" />
+                </MenuItem>
+                <MenuItem component={Link} href="/pengaturan">
+                  <ListItemIcon>
+                    <Settings fontSize="small" />
+                  </ListItemIcon>
+                  <ListItemText primary="Pengaturan" />
+                </MenuItem>
+                <Divider />
+                <MenuItem onClick={handleLogout} sx={{ color: "error.main" }}>
+                  <ListItemIcon sx={{ color: "error.main" }}>
+                    <Logout fontSize="small" />
+                  </ListItemIcon>
+                  <ListItemText primary="Logout" />
+                </MenuItem>
+              </Menu>
             </Stack>
           </Toolbar>
         </AppBar>
 
-        {/* =========================
-            PAGE CONTENT
-        ========================== */}
-        <Box
-          sx={{
-            flex: 1,
-            width: "100%",
-            p: {
-              xs: 1.5,
-              sm: 2,
-              md: 3,
-            },
-          }}
-        >
+        <Box sx={{ flex: 1, width: "100%", p: { xs: 1.5, sm: 2, md: 3 } }}>
           {children}
         </Box>
       </Box>

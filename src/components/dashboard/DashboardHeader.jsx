@@ -2,7 +2,7 @@
 
 import { Box, Chip, Stack, Typography } from "@mui/material";
 
-export default function DashboardHeader() {
+export default function DashboardHeader({ period }) {
   return (
     <Box
       sx={{
@@ -38,7 +38,7 @@ export default function DashboardHeader() {
         </Box>
 
         <Chip
-          label="Periode Agustus 2026"
+          label={period ? `Periode ${period}` : "Belum ada periode"}
           sx={{
             bgcolor: "rgba(255,255,255,.18)",
             color: "#fff",

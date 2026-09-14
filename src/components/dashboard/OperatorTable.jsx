@@ -14,34 +14,7 @@ import {
   Paper,
 } from "@mui/material";
 
-const rows = [
-  {
-    nik: "OP001",
-    nama: "Budi",
-    bagian: "Sewing",
-    psi: 0.96,
-    ranking: 1,
-    status: "Tetap",
-  },
-  {
-    nik: "OP002",
-    nama: "Andi",
-    bagian: "Cutting",
-    psi: 0.91,
-    ranking: 2,
-    status: "Tetap",
-  },
-  {
-    nik: "OP003",
-    nama: "Rina",
-    bagian: "Finishing",
-    psi: 0.78,
-    ranking: 3,
-    status: "Perpanjang",
-  },
-];
-
-export default function OperatorTable() {
+export default function OperatorTable({ rows = [] }) {
   return (
     <Card sx={{ borderRadius: 3 }}>
       <CardContent>
@@ -83,7 +56,13 @@ export default function OperatorTable() {
                   <TableCell>
                     <Chip
                       label={row.status}
-                      color={row.status === "Tetap" ? "success" : "warning"}
+                      color={
+                        row.status === "Karyawan Tetap"
+                          ? "success"
+                          : row.status === "Tidak Dilanjutkan"
+                            ? "error"
+                            : "warning"
+                      }
                       size="small"
                     />
                   </TableCell>

@@ -2,30 +2,7 @@
 
 import { Card, CardContent, Divider, Stack, Typography } from "@mui/material";
 
-const activities = [
-  {
-    title: "Supervisor",
-    detail: "Melakukan penilaian operator.",
-    time: "08.10",
-  },
-  {
-    title: "HRD",
-    detail: "Melakukan proses perhitungan PSI.",
-    time: "09.30",
-  },
-  {
-    title: "Manager Produksi",
-    detail: "Melihat hasil rekomendasi.",
-    time: "10.15",
-  },
-  {
-    title: "Sistem",
-    detail: "Berhasil menghasilkan ranking operator.",
-    time: "10.18",
-  },
-];
-
-export default function ActivityCard() {
+export default function ActivityCard({ activities = [] }) {
   return (
     <Card
       sx={{

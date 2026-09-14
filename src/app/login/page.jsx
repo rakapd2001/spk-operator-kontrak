@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+
 import {
+  Alert,
   Box,
   Button,
   Card,
@@ -11,31 +13,64 @@ import {
   FormControlLabel,
   IconButton,
   InputAdornment,
-  Stack,
   TextField,
   Typography,
-  Alert,
 } from "@mui/material";
+
 import { Lock, Person, Visibility, VisibilityOff } from "@mui/icons-material";
 
 export default function LoginPage() {
   const router = useRouter();
+
   const [showPassword, setShowPassword] = useState(false);
+
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
 
-  const handleSubmit = (event) => {
+  const [remember, setRemember] = useState(false);
+
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  // =====================================================
+  // LOGIN
+  // =====================================================
+
+  const handleSubmit = async (event) => {
     event.preventDefault();
-    if (!username || !password) {
+
+    setError("");
+
+    if (!username.trim() || !password) {
       setError("Username dan password wajib diisi.");
       return;
     }
-    if (username.toLowerCase() === "admin" && password === "123456") {
-      router.push("/dashboard");
-      return;
+
+    try {
+      const response = await fetch("/api/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          username: username.trim(),
+          password,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        setError(result.message || "Login gagal.");
+        return;
+      }
+
+      router.replace("/dashboard");
+      router.refresh();
+    } catch (error) {
+      console.error("LOGIN ERROR:", error);
+      setError("Tidak dapat terhubung ke server.");
     }
-    setError("Kredensial tidak valid. Coba admin / 123456.");
   };
 
   return (
@@ -59,13 +94,26 @@ export default function LoginPage() {
         }}
       >
         <Box
-          sx={{ display: "flex", flexDirection: { xs: "column", md: "row" } }}
+          sx={{
+            display: "flex",
+            flexDirection: {
+              xs: "column",
+              md: "row",
+            },
+          }}
         >
+          {/* =================================================
+              LEFT
+          ================================================= */}
+
           <Box
             sx={{
               flex: 1,
-              bgcolor: "linear-gradient(145deg, #10233f 0%, #2f6fed 100%)",
-              p: { xs: 4, md: 6 },
+              background: "linear-gradient(145deg, #10233f 0%, #2f6fed 100%)",
+              p: {
+                xs: 4,
+                md: 6,
+              },
               color: "white",
               display: "flex",
               flexDirection: "column",
@@ -75,10 +123,19 @@ export default function LoginPage() {
             <Typography variant="h4" fontWeight={700}>
               SPK Operator Kontrak
             </Typography>
-            <Typography variant="body1" sx={{ mt: 1, opacity: 0.9 }}>
+
+            <Typography
+              variant="body1"
+              sx={{
+                mt: 1,
+                opacity: 0.9,
+                lineHeight: 1.7,
+              }}
+            >
               Sistem pendukung keputusan penentuan operator kontrak menjadi
               karyawan tetap.
             </Typography>
+
             <Box
               sx={{
                 mt: 4,
@@ -96,10 +153,18 @@ export default function LoginPage() {
               PT
             </Box>
           </Box>
+
+          {/* =================================================
+              RIGHT
+          ================================================= */}
+
           <CardContent
             sx={{
               flex: 1,
-              p: { xs: 3, md: 5 },
+              p: {
+                xs: 3,
+                md: 5,
+              },
               display: "flex",
               flexDirection: "column",
               justifyContent: "center",
@@ -108,21 +173,36 @@ export default function LoginPage() {
             <Typography variant="h5" fontWeight={700} color="#10233f">
               Login Aplikasi
             </Typography>
+
             <Typography variant="body2" color="text.secondary" mb={3}>
               Masuk untuk mengakses dashboard penilaian.
             </Typography>
-            {error ? (
-              <Alert severity="error" sx={{ mb: 2 }}>
+
+            {/* ERROR */}
+
+            {error && (
+              <Alert
+                severity="error"
+                sx={{
+                  mb: 2,
+                  borderRadius: 2,
+                }}
+              >
                 {error}
               </Alert>
-            ) : null}
+            )}
+
             <Box component="form" onSubmit={handleSubmit}>
+              {/* USERNAME */}
+
               <TextField
                 fullWidth
                 label="Username"
                 value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                onChange={(event) => setUsername(event.target.value)}
                 margin="normal"
+                autoComplete="username"
+                disabled={loading}
                 InputProps={{
                   startAdornment: (
                     <InputAdornment position="start">
@@ -131,24 +211,32 @@ export default function LoginPage() {
                   ),
                 }}
               />
+
+              {/* PASSWORD */}
+
               <TextField
                 fullWidth
                 label="Password"
                 type={showPassword ? "text" : "password"}
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(event) => setPassword(event.target.value)}
                 margin="normal"
+                autoComplete="current-password"
+                disabled={loading}
                 InputProps={{
                   startAdornment: (
                     <InputAdornment position="start">
                       <Lock color="primary" />
                     </InputAdornment>
                   ),
+
                   endAdornment: (
                     <InputAdornment position="end">
                       <IconButton
+                        type="button"
                         onClick={() => setShowPassword((prev) => !prev)}
                         edge="end"
+                        disabled={loading}
                       >
                         {showPassword ? <VisibilityOff /> : <Visibility />}
                       </IconButton>
@@ -156,25 +244,42 @@ export default function LoginPage() {
                   ),
                 }}
               />
+
+              {/* INGAT SAYA */}
+
               <FormControlLabel
-                control={<Checkbox />}
+                control={
+                  <Checkbox
+                    checked={remember}
+                    onChange={(event) => setRemember(event.target.checked)}
+                    disabled={loading}
+                  />
+                }
                 label="Ingat saya"
-                sx={{ mt: 1 }}
+                sx={{
+                  mt: 1,
+                }}
               />
+
+              {/* LOGIN */}
+
               <Button
                 fullWidth
                 type="submit"
                 variant="contained"
                 size="large"
+                disabled={loading}
                 sx={{
                   mt: 2,
                   py: 1.3,
                   borderRadius: 2,
                   bgcolor: "#10233f",
-                  "&:hover": { bgcolor: "#2f6fed" },
+                  "&:hover": {
+                    bgcolor: "#2f6fed",
+                  },
                 }}
               >
-                Login
+                {loading ? "Memproses..." : "Login"}
               </Button>
             </Box>
           </CardContent>
