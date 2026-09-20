@@ -6,148 +6,197 @@ function serializeDate(value) {
 }
 
 function formatActivityTime(value) {
-  if (!value) {
-    return "-";
-  }
+  if (!value) return "-";
 
   return new Intl.DateTimeFormat("id-ID", {
     dateStyle: "short",
     timeStyle: "short",
-  }).format(value);
+  }).format(new Date(value));
 }
 
 export async function GET() {
   try {
-    const [operators, penilaians, hasil] = await Promise.all([
-      prisma.Operator.findMany({
-        select: {
-          IdOperator: true,
-          NIK: true,
-          NamaOperator: true,
-          Bagian: true,
+    const [operators, penilaians, hasil, users] = await Promise.all([
+      prisma.operator.findMany(),
+
+      prisma.penilaian.findMany({
+        orderBy: {
+          TanggalPenilaian: "desc",
         },
       }),
-      prisma.Penilaian.findMany({
-        orderBy: { TanggalPenilaian: "desc" },
-        select: {
-          IdPenilaian: true,
-          IdOperator: true,
-          TanggalPenilaian: true,
-          Periode: true,
-          Operator: {
-            select: {
-              NIK: true,
-              NamaOperator: true,
-              Bagian: true,
-            },
-          },
-          Supervisor: {
-            select: {
-              NamaLengkap: true,
-            },
-          },
+
+      prisma.hasilPSI.findMany({
+        orderBy: {
+          Ranking: "asc",
         },
       }),
-      prisma.HasilPSI.findMany({
-        orderBy: { Ranking: "asc" },
-        select: {
-          IdHasilPSI: true,
-          NilaiPSI: true,
-          Ranking: true,
-          Rekomendasi: true,
-          TanggalPerhitungan: true,
-          Penilaian: {
-            select: {
-              IdPenilaian: true,
-              TanggalPenilaian: true,
-              Periode: true,
-              Operator: {
-                select: {
-                  NIK: true,
-                  NamaOperator: true,
-                  Bagian: true,
-                },
-              },
-            },
-          },
-        },
-      }),
+
+      prisma.users.findMany(),
     ]);
 
-    const evaluatedOperatorIds = new Set(
-      penilaians.map((penilaian) => penilaian.IdOperator),
+    // =====================================================
+    // MAPPING OPERATOR
+    // =====================================================
+
+    const operatorMap = new Map(
+      operators.map((operator) => [operator.IdOperator, operator]),
     );
-    const recommendationCounts = hasil.reduce((counts, item) => {
+
+    // =====================================================
+    // MAPPING SUPERVISOR
+    // =====================================================
+
+    const supervisorMap = new Map(users.map((user) => [user.IdUser, user]));
+
+    // =====================================================
+    // PENILAIAN + OPERATOR + SUPERVISOR
+    // =====================================================
+
+    const penilaianWithRelations = penilaians.map((item) => ({
+      ...item,
+
+      Operator: operatorMap.get(item.IdOperator) || null,
+
+      Supervisor: supervisorMap.get(item.IdSupervisor) || null,
+    }));
+
+    // =====================================================
+    // HASIL PSI + PENILAIAN + OPERATOR
+    // =====================================================
+
+    const hasilWithRelations = hasil.map((item) => {
+      const penilaian =
+        penilaianWithRelations.find(
+          (p) => p.IdPenilaian === item.IdPenilaian,
+        ) || null;
+
+      return {
+        ...item,
+        Penilaian: penilaian,
+      };
+    });
+
+    // =====================================================
+    // SUMMARY
+    // =====================================================
+
+    const evaluatedOperatorIds = new Set(
+      penilaianWithRelations.map((item) => item.IdOperator),
+    );
+
+    const recommendationCounts = hasilWithRelations.reduce((counts, item) => {
       const recommendation = item.Rekomendasi || "Belum ada rekomendasi";
+
       counts[recommendation] = (counts[recommendation] || 0) + 1;
+
       return counts;
     }, {});
-    const psiValues = hasil.map((item) => Number(item.NilaiPSI));
+
+    const psiValues = hasilWithRelations.map((item) => Number(item.NilaiPSI));
+
     const averagePsi = psiValues.length
-      ? psiValues.reduce((total, value) => total + value, 0) / psiValues.length
+      ? psiValues.reduce((sum, value) => sum + value, 0) / psiValues.length
       : 0;
-    const latestEvaluation = penilaians[0];
-    const latestResult = hasil
+
+    const latestEvaluation = penilaianWithRelations[0];
+
+    const latestResult = hasilWithRelations
       .slice()
       .sort(
-        (first, second) =>
-          new Date(second.TanggalPerhitungan) -
-          new Date(first.TanggalPerhitungan),
+        (a, b) =>
+          new Date(b.TanggalPerhitungan) - new Date(a.TanggalPerhitungan),
       )[0];
 
+    // =====================================================
+    // ACTIVITIES
+    // =====================================================
+
     const activities = [
-      ...penilaians.slice(0, 3).map((item) => ({
+      ...penilaianWithRelations.slice(0, 3).map((item) => ({
         title: "Penilaian baru disimpan",
-        detail: `${item.Supervisor?.NamaLengkap || "Supervisor"} menilai ${item.Operator?.NamaOperator || "operator"}`,
+
+        detail: `${item.Supervisor?.NamaLengkap || "Supervisor"} menilai ${
+          item.Operator?.NamaOperator || "Operator"
+        }`,
+
         time: formatActivityTime(item.TanggalPenilaian),
+
         date: serializeDate(item.TanggalPenilaian),
       })),
-      ...hasil.slice(0, 3).map((item) => ({
+
+      ...hasilWithRelations.slice(0, 3).map((item) => ({
         title: "Rekomendasi diperbarui",
-        detail: `Hasil PSI ${item.Penilaian?.Operator?.NamaOperator || "operator"} telah dihitung`,
+
+        detail: `Hasil PSI ${
+          item.Penilaian?.Operator?.NamaOperator || "Operator"
+        } telah dihitung`,
+
         time: formatActivityTime(item.TanggalPerhitungan),
+
         date: serializeDate(item.TanggalPerhitungan),
       })),
     ]
-      .sort((first, second) => new Date(second.date) - new Date(first.date))
+      .sort((a, b) => new Date(b.date) - new Date(a.date))
       .slice(0, 4);
 
     return NextResponse.json({
       success: true,
+
       data: {
         summary: {
           totalOperators: operators.length,
+
           totalEvaluated: evaluatedOperatorIds.size,
+
           recommendedPermanent: recommendationCounts["Karyawan Tetap"] || 0,
+
           contractExtension: recommendationCounts["Perpanjang Kontrak"] || 0,
+
           notContinued: recommendationCounts["Tidak Dilanjutkan"] || 0,
         },
+
         distribution: Object.entries(recommendationCounts).map(
-          ([label, value]) => ({ label, value }),
+          ([label, value]) => ({
+            label,
+            value,
+          }),
         ),
+
         psi: {
           average: Number(averagePsi.toFixed(2)),
+
           highest: psiValues.length ? Math.max(...psiValues) : 0,
+
           lowest: psiValues.length ? Math.min(...psiValues) : 0,
-          bestRanking: hasil.length
-            ? Math.min(...hasil.map((item) => item.Ranking))
+
+          bestRanking: hasilWithRelations.length
+            ? Math.min(...hasilWithRelations.map((item) => item.Ranking))
             : null,
+
           progress: operators.length
             ? Math.round((evaluatedOperatorIds.size / operators.length) * 100)
             : 0,
+
           period:
             latestEvaluation?.Periode ||
             latestResult?.Penilaian?.Periode ||
             null,
         },
-        operators: hasil.slice(0, 5).map((item) => ({
+
+        operators: hasilWithRelations.slice(0, 5).map((item) => ({
           nik: item.Penilaian?.Operator?.NIK || "-",
+
           nama: item.Penilaian?.Operator?.NamaOperator || "-",
+
           bagian: item.Penilaian?.Operator?.Bagian || "-",
+
           psi: Number(item.NilaiPSI),
+
           ranking: item.Ranking,
+
           status: item.Rekomendasi || "Belum ada rekomendasi",
         })),
+
         activities,
       },
     });
@@ -159,10 +208,13 @@ export async function GET() {
         success: false,
         message: "Gagal mengambil data dashboard.",
         data: null,
+
         error:
           process.env.NODE_ENV === "development" ? error.message : undefined,
       },
-      { status: 500 },
+      {
+        status: 500,
+      },
     );
   }
 }

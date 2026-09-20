@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import AppShell from "@/components/AppShell";
 
 import {
@@ -24,22 +24,23 @@ import {
   Typography,
 } from "@mui/material";
 
-import {
-  Assessment,
-  CalendarMonth,
-  CheckCircle,
-  Save,
-} from "@mui/icons-material";
-
+import { Assessment, CheckCircle, Save } from "@mui/icons-material";
 import Swal from "sweetalert2";
 
 export default function InputPenilaianPage() {
   const [operators, setOperators] = useState([]);
   const [criteria, setCriteria] = useState([]);
   const [users, setUsers] = useState([]);
+  const [currentUser, setCurrentUser] = useState(null);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [checkingOperator, setCheckingOperator] = useState(false);
+
+  const [alreadyEvaluated, setAlreadyEvaluated] = useState(false);
+  const [canEvaluate, setCanEvaluate] = useState(true);
+
+  const [selectedOperatorInfo, setSelectedOperatorInfo] = useState(null);
 
   const [form, setForm] = useState({
     IdOperator: "",
@@ -49,14 +50,7 @@ export default function InputPenilaianPage() {
   });
 
   const [nilai, setNilai] = useState({});
-
   const [errors, setErrors] = useState({});
-
-  /*
-   * =========================================================
-   * LOAD DATA
-   * =========================================================
-   */
 
   useEffect(() => {
     loadData();
@@ -66,15 +60,17 @@ export default function InputPenilaianPage() {
     try {
       setLoading(true);
 
-      const [operatorRes, criteriaRes, users] = await Promise.all([
+      const [operatorRes, criteriaRes, usersRes, authRes] = await Promise.all([
         fetch("/api/operators"),
         fetch("/api/kriteria"),
         fetch("/api/users"),
+        fetch("/api/auth/me", { cache: "no-store" }),
       ]);
 
       const operatorJson = await operatorRes.json();
       const criteriaJson = await criteriaRes.json();
-      const usersJson = await users.json();
+      const usersJson = await usersRes.json();
+      const authJson = await authRes.json();
 
       if (!operatorRes.ok || !operatorJson.success) {
         throw new Error(
@@ -88,23 +84,49 @@ export default function InputPenilaianPage() {
         );
       }
 
-      setOperators(operatorJson.data || []);
+      const loggedUser = authJson.success ? authJson.data : null;
+      setCurrentUser(loggedUser);
 
-      /*
-       * Sesuaikan jika API kriteria menggunakan:
-       * data: [...]
-       */
-      setCriteria(criteriaJson.data || []);
-
-      // Filter users dengan IdRole 2 (Supervisor)
-      const supervisors = (usersJson.data || []).filter(
-        (user) => user.IdRole === 2,
+      const allOperators = operatorJson.data || [];
+      const allSupervisors = (usersJson.data || []).filter(
+        (user) => Number(user.IdRole) === 2,
       );
-      console.log("Supervisors:", supervisors);
-      setUsers(supervisors);
-    } catch (error) {
-      console.error(error);
 
+      const filteredOperators = loggedUser?.Bagian
+        ? allOperators.filter(
+            (operator) =>
+              String(operator.Bagian || "")
+                .trim()
+                .toLowerCase() ===
+              String(loggedUser.Bagian || "")
+                .trim()
+                .toLowerCase(),
+          )
+        : allOperators;
+
+      const filteredSupervisors = loggedUser?.Bagian
+        ? allSupervisors.filter(
+            (user) =>
+              String(user.Bagian || "")
+                .trim()
+                .toLowerCase() ===
+              String(loggedUser.Bagian || "")
+                .trim()
+                .toLowerCase(),
+          )
+        : allSupervisors;
+
+      setOperators(filteredOperators);
+      setCriteria(criteriaJson.data || []);
+      setUsers(filteredSupervisors);
+
+      if (loggedUser?.IdUser) {
+        setForm((prev) => ({
+          ...prev,
+          IdSupervisor: String(loggedUser.IdUser),
+        }));
+      }
+    } catch (error) {
       Swal.fire({
         icon: "error",
         title: "Gagal",
@@ -115,11 +137,88 @@ export default function InputPenilaianPage() {
     }
   }
 
-  /*
-   * =========================================================
-   * FORM
-   * =========================================================
-   */
+  async function checkOperatorEvaluation(operatorId) {
+    if (!operatorId) {
+      setAlreadyEvaluated(false);
+      setCanEvaluate(true);
+      setSelectedOperatorInfo(null);
+      return;
+    }
+
+    const selectedOperator = operators.find(
+      (operator) => Number(operator.IdOperator) === Number(operatorId),
+    );
+
+    if (selectedOperator) {
+      setSelectedOperatorInfo({
+        NIK: selectedOperator.NIK || "-",
+        NamaOperator: selectedOperator.NamaOperator || "-",
+        Bagian: selectedOperator.Bagian || "-",
+        TanggalKontrakSelesai: formatDate(
+          selectedOperator.TanggalKontrakSelesai,
+        ),
+      });
+    } else {
+      setSelectedOperatorInfo(null);
+    }
+
+    setCheckingOperator(true);
+
+    try {
+      const response = await fetch(
+        `/api/penilaian?check=true&IdOperator=${operatorId}`,
+      );
+
+      const result = await response.json();
+
+      if (!response.ok || !result?.success) {
+        setAlreadyEvaluated(false);
+        setCanEvaluate(true);
+        return;
+      }
+
+      if (result.exists === true) {
+        setAlreadyEvaluated(true);
+        setCanEvaluate(true);
+
+        Swal.fire({
+          icon: "warning",
+          title: "Peringatan",
+          text: "Operator ini sudah memiliki data penilaian",
+          confirmButtonText: "OK",
+        });
+
+        return;
+      }
+
+      if (result.canEvaluate === false) {
+        setAlreadyEvaluated(false);
+        setCanEvaluate(false);
+
+        Swal.fire({
+          icon: "warning",
+          title: "Peringatan",
+          text: "Operator hanya dapat dinilai 14 hari sebelum kontrak berakhir",
+          confirmButtonText: "OK",
+        });
+
+        return;
+      }
+
+      setAlreadyEvaluated(false);
+      setCanEvaluate(true);
+    } catch (error) {
+      setAlreadyEvaluated(false);
+      setCanEvaluate(true);
+      Swal.fire({
+        icon: "error",
+        title: "Gagal",
+        text: "Gagal mengecek status operator.",
+      });
+    } finally {
+      setCheckingOperator(false);
+    }
+  }
 
   function handleChange(event) {
     const { name, value } = event.target;
@@ -147,12 +246,6 @@ export default function InputPenilaianPage() {
     }));
   }
 
-  /*
-   * =========================================================
-   * PROGRESS
-   * =========================================================
-   */
-
   const totalKriteria = criteria.length;
 
   const jumlahDinilai = Object.keys(nilai).filter(
@@ -161,12 +254,6 @@ export default function InputPenilaianPage() {
 
   const progress =
     totalKriteria > 0 ? Math.round((jumlahDinilai / totalKriteria) * 100) : 0;
-
-  /*
-   * =========================================================
-   * VALIDATION
-   * =========================================================
-   */
 
   function validate() {
     const newErrors = {};
@@ -202,14 +289,19 @@ export default function InputPenilaianPage() {
     return Object.keys(newErrors).length === 0;
   }
 
-  /*
-   * =========================================================
-   * SAVE
-   * =========================================================
-   */
-
   async function handleSubmit(event) {
     event.preventDefault();
+
+    if (alreadyEvaluated || !canEvaluate) {
+      Swal.fire({
+        icon: "warning",
+        title: "Penilaian tidak dapat diproses",
+        text: alreadyEvaluated
+          ? "Operator ini sudah memiliki data penilaian"
+          : "Operator hanya dapat dinilai 14 hari sebelum kontrak berakhir",
+      });
+      return;
+    }
 
     if (!validate()) {
       Swal.fire({
@@ -244,7 +336,7 @@ export default function InputPenilaianPage() {
         },
         body: JSON.stringify(payload),
       });
-      console.log("Response :", payload);
+
       const result = await response.json();
 
       if (!response.ok || !result.success) {
@@ -259,10 +351,19 @@ export default function InputPenilaianPage() {
         showConfirmButton: false,
       });
 
-      setNilai({});
-    } catch (error) {
-      console.error(error);
+      setForm({
+        IdOperator: "",
+        IdSupervisor: "",
+        TanggalPenilaian: new Date().toISOString().split("T")[0],
+        Periode: getCurrentPeriod(),
+      });
 
+      setNilai({});
+      setErrors({});
+      setAlreadyEvaluated(false);
+      setCanEvaluate(true);
+      setSelectedOperatorInfo(null);
+    } catch (error) {
       Swal.fire({
         icon: "error",
         title: "Gagal menyimpan",
@@ -272,12 +373,6 @@ export default function InputPenilaianPage() {
       setSaving(false);
     }
   }
-
-  /*
-   * =========================================================
-   * LOADING
-   * =========================================================
-   */
 
   if (loading) {
     return (
@@ -301,12 +396,6 @@ export default function InputPenilaianPage() {
     );
   }
 
-  /*
-   * =========================================================
-   * RENDER
-   * =========================================================
-   */
-
   return (
     <AppShell>
       <Box
@@ -319,10 +408,6 @@ export default function InputPenilaianPage() {
           overflow: "hidden",
         }}
       >
-        {/* =====================================================
-            HEADER
-        ====================================================== */}
-
         <Card
           sx={{
             mb: 2.5,
@@ -341,25 +426,16 @@ export default function InputPenilaianPage() {
             }}
           >
             <Stack
-              direction={{
-                xs: "column",
-                sm: "row",
-              }}
+              direction={{ xs: "column", sm: "row" }}
               spacing={2}
-              alignItems={{
-                xs: "flex-start",
-                sm: "center",
-              }}
+              alignItems={{ xs: "flex-start", sm: "center" }}
               justifyContent="space-between"
             >
               <Stack
                 direction="row"
                 spacing={1.5}
                 alignItems="center"
-                sx={{
-                  minWidth: 0,
-                  width: "100%",
-                }}
+                sx={{ minWidth: 0, width: "100%" }}
               >
                 <Box
                   sx={{
@@ -422,10 +498,6 @@ export default function InputPenilaianPage() {
           </CardContent>
         </Card>
 
-        {/* =====================================================
-            INFORMASI PENILAIAN
-        ====================================================== */}
-
         <Card
           sx={{
             mb: 2.5,
@@ -443,12 +515,7 @@ export default function InputPenilaianPage() {
             <Typography
               variant="h6"
               fontWeight={700}
-              sx={{
-                fontSize: {
-                  xs: "1rem",
-                  sm: "1.15rem",
-                },
-              }}
+              sx={{ fontSize: { xs: "1rem", sm: "1.15rem" } }}
             >
               Informasi Penilaian
             </Typography>
@@ -462,8 +529,6 @@ export default function InputPenilaianPage() {
             </Typography>
 
             <Grid container spacing={2}>
-              {/* OPERATOR */}
-
               <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                 <FormControl fullWidth error={Boolean(errors.IdOperator)}>
                   <InputLabel>Operator *</InputLabel>
@@ -472,14 +537,36 @@ export default function InputPenilaianPage() {
                     name="IdOperator"
                     value={form.IdOperator}
                     label="Operator *"
-                    onChange={handleChange}
+                    disabled={checkingOperator}
+                    onChange={async (event) => {
+                      const selectedOperatorId = event.target.value;
+
+                      setForm((prev) => ({
+                        ...prev,
+                        IdOperator: selectedOperatorId,
+                      }));
+
+                      setErrors((prev) => ({
+                        ...prev,
+                        IdOperator: "",
+                      }));
+
+                      if (!selectedOperatorId) {
+                        setAlreadyEvaluated(false);
+                        setCanEvaluate(true);
+                        setSelectedOperatorInfo(null);
+                        return;
+                      }
+
+                      await checkOperatorEvaluation(selectedOperatorId);
+                    }}
                   >
                     {operators.map((operator) => (
                       <MenuItem
                         key={operator.IdOperator}
                         value={operator.IdOperator}
                       >
-                        {operator.NamaOperator}
+                        {operator.NIK || "-"} - {operator.NamaOperator}
                       </MenuItem>
                     ))}
                   </Select>
@@ -489,8 +576,6 @@ export default function InputPenilaianPage() {
                   )}
                 </FormControl>
               </Grid>
-
-              {/* SUPERVISOR */}
 
               <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                 <FormControl fullWidth error={Boolean(errors.IdSupervisor)}>
@@ -507,6 +592,7 @@ export default function InputPenilaianPage() {
                         key={supervisor.IdUser}
                         value={supervisor.IdUser}
                       >
+                        {supervisor.Username || supervisor.NamaLengkap} -{" "}
                         {supervisor.NamaLengkap}
                       </MenuItem>
                     ))}
@@ -517,8 +603,6 @@ export default function InputPenilaianPage() {
                   )}
                 </FormControl>
               </Grid>
-
-              {/* TANGGAL */}
 
               <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                 <TextField
@@ -538,27 +622,86 @@ export default function InputPenilaianPage() {
                 />
               </Grid>
 
-              {/* PERIODE */}
-
               <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                <TextField
-                  fullWidth
-                  label="Periode *"
-                  name="Periode"
-                  value={form.Periode}
-                  onChange={handleChange}
-                  error={Boolean(errors.Periode)}
-                  helperText={errors.Periode}
-                  placeholder="Contoh: Agustus 2026"
-                />
+                <Stack direction="row" spacing={1}>
+                  <FormControl fullWidth error={Boolean(errors.Periode)}>
+                    <InputLabel>Bulan *</InputLabel>
+                    <Select
+                      value={getPeriodMonth(form.Periode)}
+                      label="Bulan *"
+                      onChange={(event) => {
+                        const selectedMonth = event.target.value;
+                        const selectedYear = getPeriodYear(form.Periode);
+
+                        setForm((prev) => ({
+                          ...prev,
+                          Periode: `${selectedMonth} ${selectedYear}`,
+                        }));
+
+                        setErrors((prev) => ({
+                          ...prev,
+                          Periode: "",
+                        }));
+                      }}
+                    >
+                      {MONTH_OPTIONS.map((month) => (
+                        <MenuItem key={month} value={month}>
+                          {month}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+
+                  <FormControl fullWidth error={Boolean(errors.Periode)}>
+                    <InputLabel>Tahun *</InputLabel>
+                    <Select
+                      value={String(getPeriodYear(form.Periode))}
+                      label="Tahun *"
+                      onChange={(event) => {
+                        const selectedYear = event.target.value;
+                        const selectedMonth = getPeriodMonth(form.Periode);
+
+                        setForm((prev) => ({
+                          ...prev,
+                          Periode: `${selectedMonth} ${selectedYear}`,
+                        }));
+
+                        setErrors((prev) => ({
+                          ...prev,
+                          Periode: "",
+                        }));
+                      }}
+                    >
+                      {getYearOptions().map((year) => (
+                        <MenuItem key={year} value={String(year)}>
+                          {year}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Stack>
+
+                {errors.Periode && (
+                  <FormHelperText sx={{ mt: 1 }}>
+                    {errors.Periode}
+                  </FormHelperText>
+                )}
               </Grid>
             </Grid>
+
+            {selectedOperatorInfo && (
+              <Alert severity="info" sx={{ mt: 2.5 }}>
+                NIK Operator: {selectedOperatorInfo.NIK}
+                <br />
+                Nama Operator: {selectedOperatorInfo.NamaOperator}
+                <br />
+                Bagian: {selectedOperatorInfo.Bagian}
+                <br />
+                Kontrak Berakhir: {selectedOperatorInfo.TanggalKontrakSelesai}
+              </Alert>
+            )}
           </CardContent>
         </Card>
-
-        {/* =====================================================
-            KRITERIA
-        ====================================================== */}
 
         <Card
           sx={{
@@ -575,28 +718,17 @@ export default function InputPenilaianPage() {
             }}
           >
             <Stack
-              direction={{
-                xs: "column",
-                sm: "row",
-              }}
+              direction={{ xs: "column", sm: "row" }}
               spacing={1}
               justifyContent="space-between"
-              alignItems={{
-                xs: "flex-start",
-                sm: "center",
-              }}
+              alignItems={{ xs: "flex-start", sm: "center" }}
               mb={2}
             >
               <Box>
                 <Typography
                   variant="h6"
                   fontWeight={700}
-                  sx={{
-                    fontSize: {
-                      xs: "1rem",
-                      sm: "1.15rem",
-                    },
-                  }}
+                  sx={{ fontSize: { xs: "1rem", sm: "1.15rem" } }}
                 >
                   Penilaian Berdasarkan Kriteria
                 </Typography>
@@ -620,6 +752,8 @@ export default function InputPenilaianPage() {
             <Stack spacing={1.5}>
               {criteria.map((item) => {
                 const selectedValue = nilai[item.IdKriteria];
+                const isKriteriaDisabled =
+                  alreadyEvaluated || !canEvaluate || checkingOperator;
 
                 return (
                   <Paper
@@ -631,25 +765,12 @@ export default function InputPenilaianPage() {
                     }}
                   >
                     <Stack
-                      direction={{
-                        xs: "column",
-                        md: "row",
-                      }}
+                      direction={{ xs: "column", md: "row" }}
                       spacing={2}
-                      alignItems={{
-                        xs: "stretch",
-                        md: "center",
-                      }}
+                      alignItems={{ xs: "stretch", md: "center" }}
                       justifyContent="space-between"
                     >
-                      {/* INFO KRITERIA */}
-
-                      <Box
-                        sx={{
-                          minWidth: 0,
-                          flex: 1,
-                        }}
-                      >
+                      <Box sx={{ minWidth: 0, flex: 1 }}>
                         <Stack
                           direction="row"
                           spacing={1}
@@ -659,18 +780,13 @@ export default function InputPenilaianPage() {
                             label={item.KodeKriteria || `C${item.IdKriteria}`}
                             size="small"
                             color="primary"
-                            sx={{
-                              fontWeight: 700,
-                              flexShrink: 0,
-                            }}
+                            sx={{ fontWeight: 700, flexShrink: 0 }}
                           />
 
                           <Box sx={{ minWidth: 0 }}>
                             <Typography
                               fontWeight={700}
-                              sx={{
-                                wordBreak: "break-word",
-                              }}
+                              sx={{ wordBreak: "break-word" }}
                             >
                               {item.NamaKriteria}
                             </Typography>
@@ -709,13 +825,11 @@ export default function InputPenilaianPage() {
                         }}
                       />
 
-                      {/* NILAI */}
-
                       <Box
                         sx={{
                           width: {
                             xs: "100%",
-                            md: 260,
+                            md: 420,
                           },
                           flexShrink: 0,
                         }}
@@ -729,18 +843,53 @@ export default function InputPenilaianPage() {
                           <Select
                             value={selectedValue ?? ""}
                             label="Pilih Nilai"
+                            disabled={isKriteriaDisabled}
                             onChange={(event) =>
                               handleNilaiChange(
                                 item.IdKriteria,
                                 event.target.value,
                               )
                             }
+                            sx={{
+                              "& .MuiSelect-select": {
+                                whiteSpace: "normal",
+                                lineHeight: 1.5,
+                                py: 1.25,
+                              },
+                            }}
                           >
-                            {[1, 2, 3, 4, 5].map((value) => (
-                              <MenuItem key={value} value={value}>
-                                Nilai {value}
-                              </MenuItem>
-                            ))}
+                            {(item.KriteriaDetail?.length
+                              ? item.KriteriaDetail
+                              : [
+                                  { Nilai: 1, NamaDetail: "Sangat Kurang" },
+                                  { Nilai: 2, NamaDetail: "Kurang" },
+                                  { Nilai: 3, NamaDetail: "Cukup" },
+                                  { Nilai: 4, NamaDetail: "Baik" },
+                                  { Nilai: 5, NamaDetail: "Sangat Baik" },
+                                ]
+                            )
+                              .slice()
+                              .sort((a, b) => Number(a.Nilai) - Number(b.Nilai))
+                              .map((detail) => {
+                                const nilaiValue = Number(detail.Nilai);
+                                const detailLabel = detail.Keterangan
+                                  ? `${nilaiValue} - ${detail.NamaDetail || "Nilai " + nilaiValue}: ${detail.Keterangan}`
+                                  : `${nilaiValue} - ${detail.NamaDetail || "Nilai " + nilaiValue}`;
+
+                                return (
+                                  <MenuItem
+                                    key={detail.IdKriteriaDetail ?? nilaiValue}
+                                    value={nilaiValue}
+                                    sx={{
+                                      whiteSpace: "normal",
+                                      wordBreak: "break-word",
+                                      py: 1.25,
+                                    }}
+                                  >
+                                    {detailLabel}
+                                  </MenuItem>
+                                );
+                              })}
                           </Select>
 
                           {errors[`kriteria_${item.IdKriteria}`] && (
@@ -764,15 +913,7 @@ export default function InputPenilaianPage() {
           </CardContent>
         </Card>
 
-        {/* =====================================================
-            FOOTER / ACTION
-        ====================================================== */}
-
-        <Card
-          sx={{
-            borderRadius: { xs: 2, md: 3 },
-          }}
-        >
+        <Card sx={{ borderRadius: { xs: 2, md: 3 } }}>
           <CardContent
             sx={{
               p: { xs: 2, sm: 2.5, md: 2 },
@@ -782,15 +923,9 @@ export default function InputPenilaianPage() {
             }}
           >
             <Stack
-              direction={{
-                xs: "column",
-                sm: "row",
-              }}
+              direction={{ xs: "column", sm: "row" }}
               spacing={2}
-              alignItems={{
-                xs: "stretch",
-                sm: "center",
-              }}
+              alignItems={{ xs: "stretch", sm: "center" }}
               justifyContent="space-between"
             >
               <Box>
@@ -807,7 +942,13 @@ export default function InputPenilaianPage() {
                 type="submit"
                 variant="contained"
                 startIcon={<Save />}
-                disabled={saving || totalKriteria === 0}
+                disabled={
+                  saving ||
+                  totalKriteria === 0 ||
+                  alreadyEvaluated ||
+                  !canEvaluate ||
+                  checkingOperator
+                }
                 sx={{
                   minHeight: 48,
                   px: 3,
@@ -829,17 +970,79 @@ export default function InputPenilaianPage() {
   );
 }
 
-/*
- * =========================================================
- * HELPER
- * =========================================================
- */
+const MONTH_OPTIONS = [
+  "Januari",
+  "Februari",
+  "Maret",
+  "April",
+  "Mei",
+  "Juni",
+  "Juli",
+  "Agustus",
+  "September",
+  "Oktober",
+  "November",
+  "Desember",
+];
+
+function getYearOptions() {
+  const currentYear = new Date().getFullYear();
+  return Array.from({ length: 6 }, (_, index) => currentYear - 2 + index);
+}
+
+function getPeriodParts(periodValue) {
+  const currentDate = new Date();
+  const fallbackMonth = currentDate.toLocaleDateString("id-ID", {
+    month: "long",
+  });
+  const fallbackYear = String(currentDate.getFullYear());
+
+  if (!periodValue) {
+    return {
+      month: fallbackMonth,
+      year: fallbackYear,
+    };
+  }
+
+  const parts = String(periodValue).trim().split(/\s+/);
+  const month = parts[0] || fallbackMonth;
+  const year = parts[1] || fallbackYear;
+
+  return {
+    month,
+    year: String(year),
+  };
+}
+
+function getPeriodMonth(periodValue) {
+  return getPeriodParts(periodValue).month;
+}
+
+function getPeriodYear(periodValue) {
+  return getPeriodParts(periodValue).year;
+}
 
 function getCurrentPeriod() {
   const date = new Date();
 
   return date.toLocaleDateString("id-ID", {
     month: "long",
+    year: "numeric",
+  });
+}
+
+function formatDate(dateValue) {
+  if (!dateValue) return "-";
+
+  const date = new Date(dateValue);
+
+  if (Number.isNaN(date.getTime())) {
+    return dateValue;
+  }
+
+  return date.toLocaleDateString("id-ID", {
+    day: "2-digit",
+    month: "2-digit",
     year: "numeric",
   });
 }

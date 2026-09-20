@@ -8,37 +8,34 @@ import bcrypt from "bcryptjs";
 
 export async function GET() {
   try {
-    const users = await prisma.Users.findMany({
-      select: {
-        IdUser: true,
-        IdRole: true,
-        NamaLengkap: true,
-        Username: true,
-        StatusAktif: true,
-
-        Role: {
-          select: {
-            IdRole: true,
-            NamaRole: true,
-          },
+    const [users, roles] = await Promise.all([
+      prisma.users.findMany({
+        orderBy: {
+          IdUser: "asc",
         },
-      },
+      }),
 
-      orderBy: {
-        IdUser: "asc",
-      },
-    });
+      prisma.role.findMany(),
+    ]);
+
+    const roleMap = new Map(roles.map((role) => [role.IdRole, role]));
+
+    const result = users.map((user) => ({
+      ...user,
+
+      Role: roleMap.get(user.IdRole) || null,
+    }));
 
     return NextResponse.json({
       success: true,
       message:
-        users.length === 0
+        result.length === 0
           ? "Data user belum tersedia."
           : "Data user berhasil diambil.",
-      data: users,
+      data: result,
     });
   } catch (error) {
-    // console.error("GET USERS ERROR:", error);
+    console.error("GET USERS ERROR:", error);
 
     return NextResponse.json(
       {
@@ -63,9 +60,8 @@ export async function POST(request) {
   try {
     const body = await request.json();
 
-    // console.log("POST USER BODY:", body);
-
-    const { IdRole, NamaLengkap, Username, Password, StatusAktif } = body;
+    const { IdRole, NamaLengkap, Username, Password, StatusAktif, Bagian } =
+      body;
 
     // =====================================================
     // VALIDASI
@@ -127,7 +123,7 @@ export async function POST(request) {
     // CEK ROLE
     // =====================================================
 
-    const role = await prisma.Role.findUnique({
+    const role = await prisma.role.findUnique({
       where: {
         IdRole: roleId,
       },
@@ -149,7 +145,7 @@ export async function POST(request) {
 
     const username = Username.trim();
 
-    const existingUser = await prisma.Users.findUnique({
+    const existingUser = await prisma.users.findUnique({
       where: {
         Username: username,
       },
@@ -166,51 +162,59 @@ export async function POST(request) {
     }
 
     // =====================================================
-    // HASH PASSWORD
-    // =====================================================
-
-    const hashedPassword = await bcrypt.hash(Password.trim(), 10);
-
-    // =====================================================
-    // STATUS
+    // STATUS AKTIF
     // =====================================================
 
     const status = typeof StatusAktif === "boolean" ? StatusAktif : true;
 
     // =====================================================
-    // CREATE
+    // CREATE USER
     // =====================================================
 
-    const user = await prisma.Users.create({
+    const user = await prisma.users.create({
       data: {
         IdRole: roleId,
+
         NamaLengkap: NamaLengkap.trim(),
+
         Username: username,
-        Password: hashedPassword,
+
+        // sementara plaintext
+        Password: Password.trim(),
+
         StatusAktif: status,
-      },
 
-      select: {
-        IdUser: true,
-        IdRole: true,
-        NamaLengkap: true,
-        Username: true,
-        StatusAktif: true,
-
-        Role: {
-          select: {
-            IdRole: true,
-            NamaRole: true,
-          },
-        },
+        Bagian: Bagian?.trim() || null,
       },
     });
+
+    // =====================================================
+    // RESPONSE
+    // =====================================================
 
     return NextResponse.json(
       {
         success: true,
         message: "User berhasil ditambahkan.",
-        data: user,
+
+        data: {
+          IdUser: user.IdUser,
+
+          IdRole: user.IdRole,
+
+          NamaLengkap: user.NamaLengkap,
+
+          Username: user.Username,
+
+          StatusAktif: user.StatusAktif,
+
+          Bagian: user.Bagian,
+
+          Role: {
+            IdRole: role.IdRole,
+            NamaRole: role.NamaRole,
+          },
+        },
       },
       {
         status: 201,
@@ -219,29 +223,13 @@ export async function POST(request) {
   } catch (error) {
     console.error("POST USERS ERROR:", error);
 
-    // Username duplicate
     if (error?.code === "P2002") {
       return NextResponse.json(
         {
           success: false,
           message: "Username sudah digunakan.",
         },
-        {
-          status: 409,
-        },
-      );
-    }
-
-    // Foreign key
-    if (error?.code === "P2003") {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Role yang dipilih tidak valid.",
-        },
-        {
-          status: 400,
-        },
+        { status: 409 },
       );
     }
 
@@ -249,6 +237,7 @@ export async function POST(request) {
       {
         success: false,
         message: "Gagal menambahkan user.",
+
         error:
           process.env.NODE_ENV === "development" ? error.message : undefined,
       },

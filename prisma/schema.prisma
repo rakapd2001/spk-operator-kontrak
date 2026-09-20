@@ -11,106 +11,116 @@ model Role {
   IdRole   Int    @id @default(autoincrement())
   NamaRole String @db.VarChar(50)
 
-  Users Users[]
-
   @@map("Role")
 }
 
 model Users {
-  IdUser      Int     @id @default(autoincrement())
-  IdRole      Int
-  NamaLengkap String
-  Username    String  @unique
-  Password    String
+  IdUser Int @id @default(autoincrement())
+
+  IdRole Int
+
+  NamaLengkap String @db.VarChar(100)
+  Username    String @unique @db.VarChar(50)
+  Password    String @db.VarChar(255)
+
   StatusAktif Boolean @default(true)
 
-  Role       Role        @relation(fields: [IdRole], references: [IdRole])
-  penilaians Penilaian[]
+  Bagian String? @db.VarChar(50)
+
+  @@map("Users")
 }
 
 model Kriteria {
-  IdKriteria   Int     @id @default(autoincrement())
-  KodeKriteria String  @db.VarChar(5)
-  NamaKriteria String  @db.VarChar(100)
-  Jenis        String  @db.VarChar(20)
-  Deskripsi    String? @db.VarChar(255)
+  IdKriteria Int @id @default(autoincrement())
 
-  KriteriaDetail   KriteriaDetail[]
-  detailPenilaians PenilaianDetail[]
+  KodeKriteria String @db.VarChar(5)
+  NamaKriteria String @db.VarChar(100)
+
+  Jenis     String  @db.VarChar(20)
+  Deskripsi String? @db.VarChar(255)
 
   @@map("Kriteria")
 }
 
 model KriteriaDetail {
-  IdKriteriaDetail   Int       @id @default(autoincrement())
-  IdKriteria         Int
-  Nilai              Int
-  KodeDetail         String    @db.VarChar(10)
-  NamaDetail         String    @db.VarChar(100)
-  Keterangan         String?   @db.VarChar(255)
-  kriteria           Kriteria? @relation(fields: [kriteriaIdKriteria], references: [IdKriteria])
-  kriteriaIdKriteria Int?
+  IdKriteriaDetail Int @id @default(autoincrement())
+
+  IdKriteria Int
+
+  Nilai Int
+
+  KodeDetail String @db.VarChar(10)
+  NamaDetail String @db.VarChar(100)
+
+  Keterangan String? @db.VarChar(255)
 
   @@unique([IdKriteria, Nilai])
   @@map("KriteriaDetail")
 }
 
 model Operator {
-  IdOperator            Int       @id @default(autoincrement())
-  NIK                   String    @unique @db.VarChar(20)
-  NamaOperator          String    @db.VarChar(100)
-  JenisKelamin          String?   @db.VarChar(20)
-  Bagian                String?   @db.VarChar(50)
+  IdOperator Int @id @default(autoincrement())
+
+  NIK String @unique @db.VarChar(20)
+
+  NamaOperator String @db.VarChar(100)
+
+  JenisKelamin String? @db.VarChar(20)
+
+  Bagian String? @db.VarChar(50)
+
   TanggalMasuk          DateTime?
   TanggalKontrakMulai   DateTime?
   TanggalKontrakSelesai DateTime?
-  LamaBekerja           Int?
-  StatusOperator        String?   @db.VarChar(30)
 
-  Penilaian Penilaian[]
+  PengalamanKerja Int?
 
+  StatusOperator String? @db.VarChar(30)
+
+  @@index([Bagian])
   @@map("Operator")
 }
 
 model Penilaian {
-  IdPenilaian      Int      @id @default(autoincrement())
-  IdOperator       Int
-  IdSupervisor     Int
+  IdPenilaian Int @id @default(autoincrement())
+
+  IdOperator   Int
+  IdSupervisor Int
+
   TanggalPenilaian DateTime
-  Periode          String   @db.VarChar(20)
 
-  Operator   Operator  @relation(fields: [IdOperator], references: [IdOperator])
-  Supervisor Users     @relation(fields: [IdSupervisor], references: [IdUser])
-  HasilPSI   HasilPSI?
+  StatusPenilaian String @default("DRAFT") @db.VarChar(20)
 
-  PenilaianDetail PenilaianDetail[]
+  Periode String @db.VarChar(20)
 
+  @@unique([IdOperator, IdSupervisor, Periode])
   @@map("Penilaian")
 }
 
 model PenilaianDetail {
   IdPenilaianDetail Int @id @default(autoincrement())
-  IdPenilaian       Int
-  IdKriteria        Int
-  Nilai             Int
 
-  Penilaian Penilaian @relation(fields: [IdPenilaian], references: [IdPenilaian])
+  IdPenilaian Int
+  IdKriteria  Int
 
-  Kriteria Kriteria @relation(fields: [IdKriteria], references: [IdKriteria])
+  Nilai Int
 
   @@unique([IdPenilaian, IdKriteria])
   @@map("PenilaianDetail")
 }
 
 model HasilPSI {
-  IdHasilPSI         Int      @id @default(autoincrement())
-  IdPenilaian        Int      @unique
-  NilaiPSI           Decimal  @db.Decimal(10, 6)
-  Ranking            Int
-  Rekomendasi        String   @db.VarChar(50)
-  TanggalPerhitungan DateTime @default(now())
+  IdHasilPSI Int @id @default(autoincrement())
 
-  Penilaian Penilaian @relation(fields: [IdPenilaian], references: [IdPenilaian])
+  IdPenilaian Int @unique
+
+  NilaiPSI Decimal @db.Decimal(10, 6)
+
+  Ranking Int
+
+  Rekomendasi String @db.VarChar(50)
+
+  TanggalPerhitungan DateTime @default(now())
 
   @@map("HasilPSI")
 }

@@ -393,7 +393,7 @@ export default function DataOperatorPage() {
     },
 
     {
-      field: "LamaBekerja",
+      field: "MasaBekerja",
       headerName: "Masa Kerja",
       minWidth: 145,
       flex: 1,

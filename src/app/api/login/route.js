@@ -1,22 +1,13 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
-// ============================================================
-// POST /api/login
-// ============================================================
 export async function POST(request) {
   try {
     const body = await request.json();
 
-    const username = String(body.username || "")
-      .trim()
-      .toLowerCase();
-
+    const username = String(body.username || "").trim();
     const password = String(body.password || "");
 
-    // ==========================================================
-    // VALIDASI
-    // ==========================================================
     if (!username || !password) {
       return NextResponse.json(
         {
@@ -28,40 +19,15 @@ export async function POST(request) {
       );
     }
 
-    // ==========================================================
-    // CARI USER DARI DATABASE
-    // ==========================================================
-    const user = await prisma.Users.findFirst({
+    // ==========================
+    // CARI USER
+    // ==========================
+    const user = await prisma.users.findFirst({
       where: {
-        Username: {
-          equals: username,
-          // Jika database Anda case-sensitive,
-          // lowercase di sini mungkin perlu disesuaikan.
-        },
-      },
-
-      select: {
-        IdUser: true,
-        IdRole: true,
-        NamaLengkap: true,
-        Username: true,
-        Password: true,
-        StatusAktif: true,
-
-        // Jika tabel Role memang tersedia di Prisma,
-        // bagian ini bisa digunakan.
-        Role: {
-          select: {
-            IdRole: true,
-            NamaRole: true,
-          },
-        },
+        Username: username,
       },
     });
 
-    // ==========================================================
-    // USER TIDAK DITEMUKAN
-    // ==========================================================
     if (!user) {
       return NextResponse.json(
         {
@@ -73,25 +39,24 @@ export async function POST(request) {
       );
     }
 
-    // ==========================================================
-    // CEK STATUS AKTIF
-    // ==========================================================
-    if (Number(user.StatusAktif) !== 1) {
+    // ==========================
+    // STATUS AKTIF
+    // ==========================
+    if (!user.StatusAktif) {
       return NextResponse.json(
         {
           success: false,
-          message: "Akun Anda tidak aktif. Silakan hubungi administrator.",
+          message: "Akun tidak aktif.",
           data: null,
         },
         { status: 403 },
       );
     }
 
-    // ==========================================================
-    // CEK PASSWORD
-    // TANPA BCRYPT
-    // ==========================================================
-    if (String(user.Password) !== password) {
+    // ==========================
+    // PASSWORD
+    // ==========================
+    if (user.Password !== password) {
       return NextResponse.json(
         {
           success: false,
@@ -102,48 +67,40 @@ export async function POST(request) {
       );
     }
 
-    // ==========================================================
-    // TENTUKAN ROLE
-    // ==========================================================
-    const role = user.Role?.NamaRole || null;
+    // ==========================
+    // AMBIL ROLE
+    // ==========================
+    const role = await prisma.role.findUnique({
+      where: {
+        IdRole: user.IdRole,
+      },
+    });
 
-    // ==========================================================
-    // DATA SESSION
-    // JANGAN MASUKKAN PASSWORD
-    // ==========================================================
     const sessionData = {
       IdUser: user.IdUser,
       IdRole: user.IdRole,
       NamaLengkap: user.NamaLengkap,
       Username: user.Username,
-      Role: role,
+      Bagian: user.Bagian,
+      Role: role?.NamaRole ?? null,
     };
 
-    // ==========================================================
-    // ENCODE SESSION SEMENTARA
-    // ==========================================================
     const session = Buffer.from(JSON.stringify(sessionData), "utf8").toString(
       "base64",
     );
 
-    // ==========================================================
-    // RESPONSE
-    // ==========================================================
     const response = NextResponse.json({
       success: true,
       message: "Login berhasil.",
       data: sessionData,
     });
 
-    // ==========================================================
-    // COOKIE SESSION
-    // ==========================================================
     response.cookies.set("spk_session", session, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
       path: "/",
-      maxAge: 60 * 60 * 8, // 8 jam
+      maxAge: 60 * 60 * 8,
     });
 
     return response;

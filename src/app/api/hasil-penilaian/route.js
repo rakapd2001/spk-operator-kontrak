@@ -1,86 +1,110 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
-// ======================================================
-// GET /api/hasil-penilaian
-// Hanya menampilkan hasil nilai PSI dan ranking
-// ======================================================
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
+
     const periode = searchParams.get("periode");
 
-    const data = await prisma.HasilPSI.findMany({
-      where: periode
-        ? {
-            Penilaian: {
-              Periode: periode,
-            },
-          }
-        : undefined,
-
-      orderBy: [
-        {
+    const [hasilPSI, penilaian, operator, users] = await Promise.all([
+      prisma.HasilPSI.findMany({
+        orderBy: {
           Ranking: "asc",
         },
-      ],
+      }),
 
-      select: {
-        IdHasilPSI: true,
-        IdPenilaian: true,
-        NilaiPSI: true,
-        Ranking: true,
-        TanggalPerhitungan: true,
+      prisma.Penilaian.findMany(),
 
-        Penilaian: {
-          select: {
-            IdPenilaian: true,
-            TanggalPenilaian: true,
-            Periode: true,
+      prisma.Operator.findMany(),
 
-            Operator: {
-              select: {
-                IdOperator: true,
-                NIK: true,
-                NamaOperator: true,
-                Bagian: true,
-                StatusOperator: true,
-              },
-            },
+      prisma.Users.findMany(),
+    ]);
 
-            Supervisor: {
-              select: {
-                IdUser: true,
-                NamaLengkap: true,
-              },
-            },
-          },
-        },
-      },
-    });
+    // ==========================================
+    // FILTER PERIODE
+    // ==========================================
 
-    const result = data.map((item) => ({
-      IdHasilPSI: item.IdHasilPSI,
-      IdPenilaian: item.IdPenilaian,
+    const filteredPenilaian = periode
+      ? penilaian.filter((item) => item.Periode === periode)
+      : penilaian;
 
-      NilaiPSI: Number(item.NilaiPSI),
-      Ranking: item.Ranking,
+    // ==========================================
+    // MAP
+    // ==========================================
 
-      TanggalPerhitungan: item.TanggalPerhitungan,
+    const penilaianMap = new Map(
+      filteredPenilaian.map((item) => [item.IdPenilaian, item]),
+    );
 
-      TanggalPenilaian: item.Penilaian?.TanggalPenilaian,
-      Periode: item.Penilaian?.Periode,
+    const operatorMap = new Map(
+      operator.map((item) => [item.IdOperator, item]),
+    );
 
-      Operator: item.Penilaian?.Operator || null,
-      Supervisor: item.Penilaian?.Supervisor || null,
-    }));
+    const supervisorMap = new Map(users.map((item) => [item.IdUser, item]));
+
+    // ==========================================
+    // JOIN MANUAL
+    // ==========================================
+
+    const result = hasilPSI
+      .filter((item) => penilaianMap.has(item.IdPenilaian))
+      .map((item) => {
+        const dataPenilaian = penilaianMap.get(item.IdPenilaian);
+
+        const dataOperator = operatorMap.get(dataPenilaian?.IdOperator);
+
+        const dataSupervisor = supervisorMap.get(dataPenilaian?.IdSupervisor);
+
+        return {
+          IdHasilPSI: item.IdHasilPSI,
+
+          IdPenilaian: item.IdPenilaian,
+
+          NilaiPSI: Number(item.NilaiPSI),
+
+          Ranking: item.Ranking,
+
+          Rekomendasi: item.Rekomendasi,
+
+          TanggalPerhitungan: item.TanggalPerhitungan,
+
+          TanggalPenilaian: dataPenilaian?.TanggalPenilaian ?? null,
+
+          Periode: dataPenilaian?.Periode ?? null,
+
+          Operator: dataOperator
+            ? {
+                IdOperator: dataOperator.IdOperator,
+
+                NIK: dataOperator.NIK,
+
+                NamaOperator: dataOperator.NamaOperator,
+
+                Bagian: dataOperator.Bagian,
+
+                StatusOperator: dataOperator.StatusOperator,
+              }
+            : null,
+
+          Supervisor: dataSupervisor
+            ? {
+                IdUser: dataSupervisor.IdUser,
+
+                NamaLengkap: dataSupervisor.NamaLengkap,
+              }
+            : null,
+        };
+      });
 
     return NextResponse.json({
       success: true,
+
       message:
         result.length === 0
           ? "Belum terdapat hasil penilaian."
           : "Hasil penilaian berhasil diambil.",
+
       data: result,
     });
   } catch (error) {
@@ -89,12 +113,17 @@ export async function GET(request) {
     return NextResponse.json(
       {
         success: false,
+
         message: "Gagal mengambil hasil penilaian.",
+
         data: [],
+
         error:
           process.env.NODE_ENV === "development" ? error.message : undefined,
       },
-      { status: 500 },
+      {
+        status: 500,
+      },
     );
   }
 }

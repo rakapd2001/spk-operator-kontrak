@@ -16,25 +16,30 @@ export default function ActivityCard({ activities = [] }) {
         </Typography>
 
         <Stack divider={<Divider />} spacing={2}>
-          {activities.map((item) => (
-            <Stack
-              key={item.time}
-              direction="row"
-              justifyContent="space-between"
-            >
-              <div>
-                <Typography fontWeight={600}>{item.title}</Typography>
+          {activities.map((item, index) => {
+            const itemKey =
+              item.id ?? `${item.title}-${item.detail}-${item.time}-${index}`;
 
-                <Typography variant="body2" color="text.secondary">
-                  {item.detail}
+            return (
+              <Stack
+                key={itemKey}
+                direction="row"
+                justifyContent="space-between"
+              >
+                <div>
+                  <Typography fontWeight={600}>{item.title}</Typography>
+
+                  <Typography variant="body2" color="text.secondary">
+                    {item.detail}
+                  </Typography>
+                </div>
+
+                <Typography variant="caption" color="text.secondary">
+                  {item.time}
                 </Typography>
-              </div>
-
-              <Typography variant="caption" color="text.secondary">
-                {item.time}
-              </Typography>
-            </Stack>
-          ))}
+              </Stack>
+            );
+          })}
         </Stack>
       </CardContent>
     </Card>

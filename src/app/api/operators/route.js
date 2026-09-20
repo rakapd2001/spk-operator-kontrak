@@ -9,6 +9,7 @@ export async function GET() {
         IdOperator: "desc",
       },
     });
+
     function calculateLamaBekerja(tanggalMasuk) {
       if (!tanggalMasuk) {
         return null;
@@ -27,11 +28,19 @@ export async function GET() {
 
       return Math.max(0, bulan);
     }
+
+    const data = operators.map((operator) => ({
+      ...operator,
+
+      // dalam bulan
+      MasaBekerja: calculateLamaBekerja(operator.TanggalMasuk),
+    }));
+
     return NextResponse.json({
       success: true,
-      data: operators,
+      data,
       message:
-        operators.length === 0
+        data.length === 0
           ? "Belum terdapat data operator."
           : "Data operator berhasil diambil.",
     });
@@ -46,7 +55,9 @@ export async function GET() {
         error:
           process.env.NODE_ENV === "development" ? error.message : undefined,
       },
-      { status: 500 },
+      {
+        status: 500,
+      },
     );
   }
 }
@@ -65,7 +76,6 @@ export async function POST(request) {
       TanggalKontrakMulai,
       TanggalKontrakSelesai,
       StatusOperator,
-      LamaBekerja,
     } = body;
 
     // Validasi
@@ -132,7 +142,6 @@ export async function POST(request) {
         TanggalKontrakSelesai: TanggalKontrakSelesai
           ? new Date(TanggalKontrakSelesai)
           : null,
-        LamaBekerja: lamaBekerja,
         StatusOperator: StatusOperator || "Kontrak",
       },
     });
